@@ -8,11 +8,23 @@ import (
 	"time"
 )
 
-var pan123TestInstance = NewPan123("", "YOUR_CLIENT_ID", "YOUR_CLIENT_SECRET", 0, false)
+var pan123TestInstance = NewPan123("", "333af92cb8234e28bc62d035b610f2fd", "c20b486adbd040bf925ddd5434f00f82", 0, false)
 
 var pan123TestInstanceDirID int64 = 0
 var pan123TestInstanceFileID int64 = 0
 var pan123TestFilePath string
+
+func _TestLogin(t *testing.T) {
+	err := pan123TestInstance.Login()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessTokenExpiredAt, err := pan123TestInstance.GetAccessTokenExpiredAt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("accessTokenExpiredAt = %s", accessTokenExpiredAt)
+}
 
 func _TestMkDir(t *testing.T) {
 	resp, _, err := pan123TestInstance.MkDir("go_sdk_unit_test", 0)
@@ -112,6 +124,7 @@ func TestSequential(t *testing.T) {
 		name string
 		test func(t *testing.T)
 	}{
+		{"TestLogin", _TestLogin},
 		{"TestMkDir", _TestMkDir},
 		{"TestUploadFile", _TestUploadFile},
 		{"TestMoveFile", _TestMoveFile},
@@ -133,12 +146,6 @@ func TestSequential(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	t := &testing.T{}
-
-	// 登录
-	err := pan123TestInstance.Login()
-	if err != nil {
-		t.Fatalf("pan123TestInstance.Login() error: %s", err)
-	}
 
 	// 创建测试文件
 	setupTestFile := func() error {
@@ -180,7 +187,7 @@ func TestMain(m *testing.M) {
 
 		return nil
 	}
-	err = setupTestFile()
+	err := setupTestFile()
 	if err != nil {
 		t.Fatalf("setupTestFile() error: %s", err)
 	}

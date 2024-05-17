@@ -18,11 +18,12 @@ import (
 )
 
 type Pan123 struct {
-	accessToken  string
-	clientID     string
-	clientSecret string
-	timeout      time.Duration
-	debug        bool
+	accessToken          string
+	accessTokenExpiredAt time.Time
+	clientID             string
+	clientSecret         string
+	timeout              time.Duration
+	debug                bool
 
 	httpCli *http.Client
 }
@@ -68,6 +69,20 @@ func (p123 *Pan123) GetAccessToken() string {
 	return p123.accessToken
 }
 
+// GetAccessTokenExpiredAt 获取当前accessToken过期时间
+//
+// 该方法仅在通过Login获取accessToken时可用
+//
+// @return time.Time
+//
+// @return SDKError
+func (p123 *Pan123) GetAccessTokenExpiredAt() (time.Time, error) {
+	if p123.accessTokenExpiredAt.IsZero() {
+		return time.Time{}, newSDKError(999, "unavailable", defaultTraceID)
+	}
+	return p123.accessTokenExpiredAt, nil
+}
+
 // Login 使用clientID、clientSecret获取accessToken
 //
 // @return SDKError
@@ -89,12 +104,16 @@ func (p123 *Pan123) Login() error {
 		return err
 	}
 
-	var respData LoginRespData
+	var respData loginRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
 		return err
 	}
 	p123.accessToken = respData.AccessToken
+	p123.accessTokenExpiredAt, err = time.Parse(time.RFC3339, respData.ExpiredAt)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -384,7 +403,6 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 	if err != nil {
 		return nil, authTokenRefresh, err
 	}
-	fmt.Println(chunkUploadResp.fileSliceSizes)
 
 	// 上传完毕, 进行校验
 	if createFileResp.SliceSize < fileInfo.Size() && len(chunkUploadResp.fileSliceSizes) > 1 {

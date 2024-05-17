@@ -12,92 +12,21 @@ type callApiResp struct {
 	Data         map[string]interface{}
 }
 
-type LoginRespData struct {
+type loginRespData struct {
 	AccessToken string `json:"accessToken"`
 	ExpiredAt   string `json:"expiredAt"`
 }
 
 type CreateShareRespData struct {
-	ShareID  int64  `json:"shareID"`
+	// 分享ID
+	ShareID int64 `json:"shareID"`
+	// 分享码
 	ShareKey string `json:"shareKey"`
 }
 
 type MkDirRespData struct {
+	// 创建的目录ID
 	DirID int64 `json:"dirID"`
-}
-
-type FileUploadRespData struct {
-	PreuploadID string
-	Reuse       bool
-	FileID      int64
-	Async       bool
-}
-
-type UploadAsyncResultRespData struct {
-	Completed bool  `json:"completed"`
-	FileID    int64 `json:"fileID"`
-}
-
-type GetFileListRespData struct {
-	FileList []FileListInfoRespData `json:"fileList"`
-}
-
-type FileListInfoRespData struct {
-	FileID       int64  `json:"fileID"`
-	Filename     string `json:"filename"`
-	Type         int    `json:"type"`
-	Size         int64  `json:"size"`
-	Etag         string `json:"etag"`
-	Status       int    `json:"status"`
-	ParentFileID int64  `json:"parentFileID"`
-	ParentName   string `json:"parentName"`
-	Category     int    `json:"category"`
-	ContentType  string `json:"contentType"`
-}
-
-type GetUserInfoRespData struct {
-	Uid            int64  `json:"uid"`
-	Nickname       string `json:"nickname"`
-	HeadImage      string `json:"headImage"`
-	Passport       string `json:"passport"`
-	Mail           string `json:"mail"`
-	SpaceUsed      int64  `json:"spaceUsed"`
-	SpacePermanent int64  `json:"spacePermanent"`
-	SpaceTemp      int64  `json:"spaceTemp"`
-	SpaceTempExpr  string `json:"spaceTempExpr"`
-}
-
-type QueryDirectLinkTranscodeRespData struct {
-	NoneList  []int64                                     `json:"noneList"`
-	ErrorList []QueryDirectLinkTranscodeErrorListRespData `json:"errorList"`
-	Success   []int64                                     `json:"success"`
-	Running   []int64                                     `json:"running"`
-}
-
-type QueryDirectLinkTranscodeErrorListRespData struct {
-	ID          []int64 `json:"id"`
-	ErrorReason string  `json:"errorReason"`
-}
-
-type GetDirectLinkM3u8RespData struct {
-	List []GetDirectLinkM3u8InfoRespData `json:"list"`
-}
-
-type GetDirectLinkM3u8InfoRespData struct {
-	Resolutions string `json:"resolutions"`
-	Address     string `json:"address"`
-}
-
-type EnableDirectLinkRespData struct {
-	Filename string `json:"filename"`
-}
-
-type DisableDirectLinkRespData struct {
-	Filename string `json:"filename"`
-}
-
-type GetDirectLinkUrlRespData struct {
-	Url string `json:"url"`
 }
 
 type fileUploadCreateFileRespData struct {
@@ -129,4 +58,116 @@ type fileUploadUploadCompleteRespData struct {
 	FileID    int64 `json:"fileID"`
 	Async     bool  `json:"async"`
 	Completed bool  `json:"completed"`
+}
+
+type FileUploadRespData struct {
+	// 预上传ID, 仅在需要异步查询上传结果时存在
+	PreuploadID string
+	// 是否秒传
+	Reuse bool
+	// 文件ID, 仅在秒传或无需异步查询上传结果时存在
+	FileID int64
+	// 是否需要异步查询上传结果
+	Async bool
+}
+
+type UploadAsyncResultRespData struct {
+	// 上传合并是否完成
+	Completed bool `json:"completed"`
+	// 上传成功的文件ID
+	FileID int64 `json:"fileID"`
+}
+
+type GetFileListRespData struct {
+	// 文件列表
+	FileList []FileListInfoRespData `json:"fileList"`
+}
+
+type FileListInfoRespData struct {
+	// 文件ID
+	FileID int64 `json:"fileID"`
+	// 文件名
+	Filename string `json:"filename"`
+	// 0-文件  1-文件夹
+	Type int `json:"type"`
+	// 文件大小
+	Size int64 `json:"size"`
+	// md5
+	Etag string `json:"etag"`
+	// 文件审核状态, 大于 100 为审核驳回文件
+	Status int `json:"status"`
+	// 目录ID
+	ParentFileID int64 `json:"parentFileID"`
+	// 目录名
+	ParentName string `json:"parentName"`
+	// 文件分类, 0-未知 1-音频 2-视频 3-图片
+	Category int `json:"category"`
+	// 文件类型
+	ContentType string `json:"contentType"`
+}
+
+type GetUserInfoRespData struct {
+	// 用户账号ID
+	Uid int64 `json:"uid"`
+	// 昵称
+	Nickname string `json:"nickname"`
+	// 头像
+	HeadImage string `json:"headImage"`
+	// 手机号码
+	Passport string `json:"passport"`
+	// 邮箱
+	Mail string `json:"mail"`
+	// 已用空间
+	SpaceUsed int64 `json:"spaceUsed"`
+	// 永久空间
+	SpacePermanent int64 `json:"spacePermanent"`
+	// 临时空间
+	SpaceTemp int64 `json:"spaceTemp"`
+	// 临时空间到期日
+	SpaceTempExpr string `json:"spaceTempExpr"`
+}
+
+type QueryDirectLinkTranscodeRespData struct {
+	// 未发起过转码的ID
+	NoneList []int64 `json:"noneList"`
+	// 错误文件ID列表, 这些文件ID无法进行转码操作
+	ErrorList []QueryDirectLinkTranscodeErrorListRespData `json:"errorList"`
+	// 转码成功的文件ID列表
+	Success []int64 `json:"success"`
+	// 正在转码的文件ID列表
+	Running []int64 `json:"running"`
+}
+
+type QueryDirectLinkTranscodeErrorListRespData struct {
+	// 文件ID
+	ID []int64 `json:"id"`
+	// 错误信息
+	ErrorReason string `json:"errorReason"`
+}
+
+type GetDirectLinkM3u8RespData struct {
+	// 直链转码列表
+	List []GetDirectLinkM3u8InfoRespData `json:"list"`
+}
+
+type GetDirectLinkM3u8InfoRespData struct {
+	// 分辨率
+	Resolutions string `json:"resolutions"`
+	// 播放地址
+	Address string `json:"address"`
+}
+
+type EnableDirectLinkRespData struct {
+	// 成功启用直链空间的文件夹的名称
+	Filename string `json:"filename"`
+}
+
+type DisableDirectLinkRespData struct {
+	// 成功禁用直链空间的文件夹的名称
+	Filename string `json:"filename"`
+}
+
+type GetDirectLinkUrlRespData struct {
+	// 文件对应的直链链接
+	Url string `json:"url"`
 }
