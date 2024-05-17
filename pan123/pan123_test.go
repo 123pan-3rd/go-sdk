@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var pan123TestInstance = NewPan123("", "333af92cb8234e28bc62d035b610f2fd", "c20b486adbd040bf925ddd5434f00f82", 0, false)
+var pan123TestInstance = NewPan123("", os.Getenv("PAN123_CLIENT_ID"), os.Getenv("PAN123_CLIENT_SECRET"), 0, false)
 
 var pan123TestInstanceDirID int64 = 0
 var pan123TestInstanceFileID int64 = 0
