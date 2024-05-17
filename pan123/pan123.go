@@ -652,12 +652,12 @@ func (p123 *Pan123) GetUserInfo() (*GetUserInfoRespData, bool, error) {
 		return nil, false, err
 	}
 
-	var respData *GetUserInfoRespData
+	var respData GetUserInfoRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
 		return nil, false, err
 	}
-	return respData, resp.TokenRefresh, nil
+	return &respData, resp.TokenRefresh, nil
 }
 
 // OfflineDownload 创建离线下载任务
@@ -670,10 +670,14 @@ func (p123 *Pan123) GetUserInfo() (*GetUserInfoRespData, bool, error) {
 //
 // @param callBackUrl string 回调地址, 回调内容请参考: https://123yunpan.yuque.com/org-wiki-123yunpan-muaork/cr6ced/wn77piehmp9t8ut4#jf5bZ
 //
+// @param dirID int64 下载到的指定目录ID, 不支持下载到根目录, 传0会下载到名为"来自:离线下载"的目录中
+//
+// @return UploadAsyncResultRespData
+//
 // @return bool accessToken是否有更新
 //
 // @return SDKError
-func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string) (bool, error) {
+func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string, dirID int64) (*OfflineDownloadRespData, bool, error) {
 	bodyData := map[string]interface{}{
 		"url": url,
 	}
@@ -683,17 +687,25 @@ func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string) (bool, er
 	if callBackUrl != "" {
 		bodyData["callBackUrl"] = callBackUrl
 	}
+	if dirID != 0 {
+		bodyData["dirID"] = dirID
+	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
 	resp, err := p123.callApi("api/v1/offline/download", "POST", body, map[string]string{}, true, true)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 
-	return resp.TokenRefresh, nil
+	var respData OfflineDownloadRespData
+	err = toRespData(resp.Data, &respData)
+	if err != nil {
+		return nil, false, err
+	}
+	return &respData, resp.TokenRefresh, nil
 }
 
 // QueryDirectLinkTranscode 查询直链转码进度
@@ -865,6 +877,87 @@ func (p123 *Pan123) GetDirectLinkUrl(fileID int64) (*GetDirectLinkUrlRespData, b
 	}
 
 	var respData GetDirectLinkUrlRespData
+	err = toRespData(resp.Data, &respData)
+	if err != nil {
+		return nil, false, err
+	}
+	return &respData, resp.TokenRefresh, nil
+}
+
+// RenameFile 重命名文件
+//
+// @param renameList []string 数组,每个成员的格式为 文件ID|新的文件名
+//
+// @return bool accessToken是否有更新
+//
+// @return SDKError
+func (p123 *Pan123) RenameFile(renameList []string) (bool, error) {
+	bodyData := map[string]interface{}{
+		"renameList": renameList,
+	}
+
+	body, err := json.Marshal(bodyData)
+	if err != nil {
+		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+	}
+	resp, err := p123.callApi("/api/v1/file/rename", "POST", body, map[string]string{}, true, true)
+	if err != nil {
+		return false, err
+	}
+
+	var respData DisableDirectLinkRespData
+	err = toRespData(resp.Data, &respData)
+	if err != nil {
+		return false, err
+	}
+	return resp.TokenRefresh, nil
+}
+
+// GetFileDetail 获取文件详情
+//
+// @param fileID int64 文件ID
+//
+// @return GetFileDetailRespData
+//
+// @return bool accessToken是否有更新
+//
+// @return SDKError
+func (p123 *Pan123) GetFileDetail(fileID int64) (*GetFileDetailRespData, bool, error) {
+	querys := map[string]string{
+		"fileID": strconv.FormatInt(fileID, 10),
+	}
+	resp, err := p123.callApi("/api/v1/file/detail", "GET", nil, querys, true, true)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var respData GetFileDetailRespData
+	err = toRespData(resp.Data, &respData)
+	if err != nil {
+		return nil, false, err
+	}
+	return &respData, resp.TokenRefresh, nil
+}
+
+// GetOfflineDownloadProcess 获取离线下载进度
+//
+// @param taskID int64 离线下载任务ID
+//
+// @return GetFileDetailRespData
+//
+// @return bool accessToken是否有更新
+//
+// @return SDKError
+func (p123 *Pan123) GetOfflineDownloadProcess(taskID int64) (*GetOfflineDownloadProcessRespData, bool, error) {
+	querys := map[string]string{
+		"taskID": strconv.FormatInt(taskID, 10),
+	}
+	resp, err := p123.callApi("/api/v1/offline/download/process", "GET", nil, querys, true, true)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var respData GetOfflineDownloadProcessRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
 		return nil, false, err

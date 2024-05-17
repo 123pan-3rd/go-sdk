@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -75,6 +76,20 @@ func _TestMoveFile(t *testing.T) {
 	}
 }
 
+func _TestRenameFile(t *testing.T) {
+	_, err := pan123TestInstance.RenameFile([]string{strconv.FormatInt(pan123TestInstanceFileID, 10) + "|test_rename"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func _TestGetFileDetail(t *testing.T) {
+	_, _, err := pan123TestInstance.GetFileDetail(pan123TestInstanceFileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func _TestEnableDirectLink(t *testing.T) {
 	_, _, err := pan123TestInstance.EnableDirectLink(pan123TestInstanceDirID)
 	if err != nil {
@@ -128,10 +143,12 @@ func TestSequential(t *testing.T) {
 		{"TestMkDir", _TestMkDir},
 		{"TestUploadFile", _TestUploadFile},
 		{"TestMoveFile", _TestMoveFile},
+		{"TestRenameFile", _TestRenameFile},
 		{"TestEnableDirectLink", _TestEnableDirectLink},
 		{"TestGetDirectLinkUrl", _TestGetDirectLinkUrl},
 		{"TestDisableDirectLink", _TestDisableDirectLink},
 		{"TestGetFileList", _TestGetFileList},
+		{"TestGetFileDetail", _TestGetFileDetail},
 		{"TestTrashFile", _TestTrashFile},
 	}
 

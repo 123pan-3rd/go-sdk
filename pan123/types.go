@@ -171,3 +171,40 @@ type GetDirectLinkUrlRespData struct {
 	// 文件对应的直链链接
 	Url string `json:"url"`
 }
+
+type GetFileDetailRespData struct {
+	// 文件ID
+	FileID int64 `json:"fileID"`
+	// 文件名
+	Filename string `json:"filename"`
+	// 0-文件  1-文件夹
+	Type int `json:"type"`
+	// 文件大小
+	Size int64 `json:"size"`
+	// md5
+	Etag string `json:"etag"`
+	// 文件审核状态, 大于 100 为审核驳回文件
+	Status int `json:"status"`
+	// 父级ID
+	ParentFileID int64 `json:"parentFileID"`
+	// 目录名
+	ParentName string `json:"parentName"`
+	// 文件创建时间
+	CreateAt string `json:"createAt"`
+	// 该文件是否在回收站, 0-否、1-是
+	Trashed int `json:"trashed"`
+}
+
+type GetOfflineDownloadProcessRespData struct {
+	// 下载进度百分比,当文件下载失败,该进度将会归零
+	Process float64 `json:"process"`
+	// 下载状态, 0-进行中、1-下载失败、2-下载成功、3-重试中
+	Status int `json:"status"`
+}
+
+type OfflineDownloadRespData struct {
+	// 离线下载任务ID,可通过该ID调用查询任务进度接口获取下载进度
+	TaskID int64 `json:"taskID"`
+	// 下载状态, 0-进行中、1-下载失败、2-下载成功、3-重试中
+	Status int `json:"status"`
+}
