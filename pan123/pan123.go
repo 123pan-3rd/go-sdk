@@ -265,13 +265,19 @@ func (p123 *Pan123) fileUploadGetChunkUploadUrl(preuploadID string, sliceNo int6
 	return &respData, resp.TokenRefresh, nil
 }
 
-func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, file *os.File) (*fileUploadChunkUploadRespData, bool, error) {
+func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, file *os.File, retry int, cb FileUploadCallbackFunc, chunkCount int64) (*fileUploadChunkUploadRespData, bool, error) {
 	var currFileSliceNo int64 = 1
 	authTokenRefresh := false
 	chunkBuf := make([]byte, sliceSize)
 	fileSliceSizes := map[int64]int64{}
 
 	for {
+		_currFileSliceNo := currFileSliceNo
+		cb(FileUploadCallbackInfo{
+			Status:     FILE_UPLOAD_CALLBACK_STATUS_FIRST_UPLOAD_CHUNK,
+			ChunkID:    _currFileSliceNo,
+			ChunkCount: chunkCount,
+		})
 		// 获取块上传地址
 		getChunkUploadUrlResp, _authTokenRefresh, err := p123.fileUploadGetChunkUploadUrl(preuploadID, currFileSliceNo)
 		if _authTokenRefresh {
@@ -284,7 +290,7 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 		// 读取块
 		n, err := file.Read(chunkBuf)
 		if err != nil && err != io.EOF {
-			return nil, false, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: %s", err), defaultTraceID)
+			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: %s", err), defaultTraceID)
 		}
 		if n == 0 {
 			break
@@ -296,20 +302,45 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 		// 上传块
 		var _chunkBuf bytes.Buffer
 		_chunkBuf.Write(chunkBuf[:n])
-		chunkUploadResp, err := p123.doHTTPRequest("PUT", getChunkUploadUrlResp.PresignedURL, map[string]string{}, map[string]string{}, &_chunkBuf)
+		nowRetry := 0
+		var retryErr error
+		for {
+			if nowRetry > retry {
+				break
+			}
+			if nowRetry != 0 {
+				cb(FileUploadCallbackInfo{
+					Status:     FILE_UPLOAD_CALLBACK_STATUS_RETRY_UPLOAD_CHUNK,
+					ChunkID:    _currFileSliceNo,
+					ChunkCount: chunkCount,
+				})
+			}
+			chunkUploadResp, err := p123.doHTTPRequest("PUT", getChunkUploadUrlResp.PresignedURL, map[string]string{}, map[string]string{}, &_chunkBuf)
+			if err != nil {
+				retryErr = newSDKError(999, fmt.Sprintf("http error: %s", err), defaultTraceID)
+				nowRetry++
+				continue
+			}
+			if chunkUploadResp == nil {
+				retryErr = newSDKError(999, "p123.doHTTPRequest nil?", defaultTraceID)
+				nowRetry++
+				continue
+			}
+			if chunkUploadResp.Body != nil {
+				_ = chunkUploadResp.Body.Close()
+			}
+			if chunkUploadResp.StatusCode != 204 && chunkUploadResp.StatusCode != 200 {
+				retryErr = newSDKError(999, fmt.Sprintf("http_code error: %d", chunkUploadResp.StatusCode), defaultTraceID)
+				nowRetry++
+				continue
+			}
+			break
+		}
+		if retryErr != nil {
+			// 已经到了retry的次数
+			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("maxRetry, last error: %s", retryErr), defaultTraceID)
+		}
 		_chunkBuf.Reset()
-		if err != nil {
-			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("http error: %s", err), defaultTraceID)
-		}
-		if chunkUploadResp == nil {
-			return nil, authTokenRefresh, newSDKError(999, "p123.doHTTPRequest nil?", defaultTraceID)
-		}
-		if chunkUploadResp.Body != nil {
-			_ = chunkUploadResp.Body.Close()
-		}
-		if chunkUploadResp.StatusCode != 204 && chunkUploadResp.StatusCode != 200 {
-			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("http_code error: %d", chunkUploadResp.StatusCode), defaultTraceID)
-		}
 	}
 
 	return &fileUploadChunkUploadRespData{fileSliceSizes: fileSliceSizes}, authTokenRefresh, nil
@@ -359,7 +390,7 @@ func (p123 *Pan123) fileUploadUploadComplete(preuploadID string) (*fileUploadUpl
 	return &respData, resp.TokenRefresh, nil
 }
 
-// FileUpload 上传文件
+// FileUploadWithCallback 带Callback上传文件
 //
 // @param parentFileID int64 父目录id, 上传到根目录时填写0
 //
@@ -367,12 +398,16 @@ func (p123 *Pan123) fileUploadUploadComplete(preuploadID string) (*fileUploadUpl
 //
 // @param file *os.File 要上传的文件句柄
 //
+// @param retry int 上传单一文件块时的重试次数, 0为不重试
+//
+// @param cb FileUploadCallbackFunc Callback
+//
 // @return FileUploadRespData
 //
 // @return bool accessToken是否有更新
 //
 // @return SDKError
-func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.File) (*FileUploadRespData, bool, error) {
+func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, file *os.File, retry int, cb FileUploadCallbackFunc) (*FileUploadRespData, bool, error) {
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, false, newSDKError(999, fmt.Sprintf("content.Stat error: %s", err), defaultTraceID)
@@ -381,8 +416,14 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 		return nil, false, newSDKError(999, "file_size <= 0", defaultTraceID)
 	}
 	authTokenRefresh := false
+	if cb == nil {
+		cb = func(_ FileUploadCallbackInfo) {}
+	}
 
 	// 创建文件
+	cb(FileUploadCallbackInfo{
+		Status: FILE_UPLOAD_CALLBACK_STATUS_CREATE_FILE,
+	})
 	createFileResp, _authTokenRefresh, err := p123.fileUploadCreateFile(parentFileID, filename, file, fileInfo.Size())
 	if _authTokenRefresh {
 		authTokenRefresh = true
@@ -396,7 +437,11 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 	}
 
 	// 分块上传
-	chunkUploadResp, _authTokenRefresh, err := p123.fileUploadChunkUpload(createFileResp.PreuploadID, createFileResp.SliceSize, file)
+	var chunkCount int64 = fileInfo.Size() / createFileResp.SliceSize
+	if fileInfo.Size()%createFileResp.SliceSize != 0 {
+		chunkCount++
+	}
+	chunkUploadResp, _authTokenRefresh, err := p123.fileUploadChunkUpload(createFileResp.PreuploadID, createFileResp.SliceSize, file, retry, cb, chunkCount)
 	if _authTokenRefresh {
 		authTokenRefresh = true
 	}
@@ -406,6 +451,10 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 
 	// 上传完毕, 进行校验
 	if createFileResp.SliceSize < fileInfo.Size() && len(chunkUploadResp.fileSliceSizes) > 1 {
+		cb(FileUploadCallbackInfo{
+			Status:     FILE_UPLOAD_CALLBACK_STATUS_VERIFY_CHUNK,
+			ChunkCount: chunkCount,
+		})
 		listUploadPartsResp, _authTokenRefresh, err := p123.fileUploadListUploadParts(createFileResp.PreuploadID)
 		if _authTokenRefresh {
 			authTokenRefresh = true
@@ -429,6 +478,9 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 	}
 
 	// 通知上传完成
+	cb(FileUploadCallbackInfo{
+		Status: FILE_UPLOAD_CALLBACK_STATUS_REPORT_COMPLETE,
+	})
 	uploadCompleteResp, _authTokenRefresh, err := p123.fileUploadUploadComplete(createFileResp.PreuploadID)
 	if _authTokenRefresh {
 		authTokenRefresh = true
@@ -446,6 +498,25 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 	}
 
 	return nil, authTokenRefresh, newSDKError(999, "upload failed", defaultTraceID)
+}
+
+// FileUpload 上传文件
+//
+// @param parentFileID int64 父目录id, 上传到根目录时填写0
+//
+// @param filename string 文件名要小于128个字符且不能包含以下任何字符："\/:*?|><。（注：不能重名）
+//
+// @param retry int 上传单一文件块时的重试次数, 0为不重试
+//
+// @return FileUploadRespData
+//
+// @return bool accessToken是否有更新
+//
+// @return SDKError
+func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.File, retry int) (*FileUploadRespData, bool, error) {
+	resp, authTokenRefresh, err := p123.FileUploadWithCallback(parentFileID, filename, file, retry, nil)
+
+	return resp, authTokenRefresh, err
 }
 
 // GetUploadAsyncResult 异步轮询获取上传结果

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var pan123TestInstance = NewPan123("", os.Getenv("PAN123_CLIENT_ID"), os.Getenv("PAN123_CLIENT_SECRET"), 0, false)
+var pan123TestInstance = NewPan123(os.Getenv("PAN123_ACCESS_TOKEN"), os.Getenv("PAN123_CLIENT_ID"), os.Getenv("PAN123_CLIENT_SECRET"), 0, false)
 
 var pan123TestInstanceDirID int64 = 0
 var pan123TestInstanceFileID int64 = 0
@@ -41,7 +41,10 @@ func _TestUploadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	resp, _, err := pan123TestInstance.FileUpload(pan123TestInstanceDirID, "go_sdk_unit_test_test_upload.txt", file)
+	statusCB := func(info FileUploadCallbackInfo) {
+		t.Log(info)
+	}
+	resp, _, err := pan123TestInstance.FileUploadWithCallback(pan123TestInstanceDirID, "go_sdk_unit_test_test_upload.txt", file, 23, statusCB)
 	if err != nil {
 		t.Fatal(err)
 	}
