@@ -1,6 +1,6 @@
 # Unofficial 123pan Golang SDK
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/123pan-3rd/go-sdk.svg)](https://pkg.go.dev/github.com/123pan-3rd/go-sdk)
+[![Go Reference](https://pkg.go.dev/badge/github.com/123pan-3rd/go-sdk.svg)](https://pkg.go.dev/github.com/123pan-3rd/go-sdk/v2)
 [![go-mod](https://img.shields.io/github/go-mod/go-version/123pan-3rd/go-sdk)](https://github.com/123pan-3rd/go-sdk)
 
 123云盘非官方Golang SDK
