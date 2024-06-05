@@ -18,36 +18,24 @@ import (
 )
 
 type Pan123 struct {
-	accessToken          string
-	accessTokenExpiredAt time.Time
-	clientID             string
-	clientSecret         string
-	timeout              time.Duration
-	debug                bool
+	accessToken string
+	timeout     time.Duration
+	debug       bool
 
 	httpCli *http.Client
 }
 
 // NewPan123 创建123云盘SDK实例
 //
-// @param accessToken string access_token, 如不存在可传空值并手动调用login方法获取
-//
-// @param clientID string clientID, 如不提供则不支持自动获取access_token
-//
-// @param clientSecret string clientSecret, 与clientID组成一对
-//
 // @param timeout time.Duration HTTP请求超时时间, 默认为0
 //
 // @param debug bool 是否开启debug
 //
 // @return *Pan123
-func NewPan123(accessToken, clientID, clientSecret string, timeout time.Duration, debug bool) *Pan123 {
+func NewPan123(timeout time.Duration, debug bool) *Pan123 {
 	p123 := &Pan123{
-		accessToken:  accessToken,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		timeout:      timeout,
-		debug:        debug,
+		timeout: timeout,
+		debug:   debug,
 	}
 
 	p123.httpCli = &http.Client{
@@ -69,52 +57,50 @@ func (p123 *Pan123) GetAccessToken() string {
 	return p123.accessToken
 }
 
-// GetAccessTokenExpiredAt 获取当前accessToken过期时间
+// SetAccessToken 设置当前accessToken
 //
-// 该方法仅在通过Login获取accessToken时可用
-//
-// @return time.Time
-//
-// @return SDKError
-func (p123 *Pan123) GetAccessTokenExpiredAt() (time.Time, error) {
-	if p123.accessTokenExpiredAt.IsZero() {
-		return time.Time{}, newSDKError(999, "unavailable", defaultTraceID)
-	}
-	return p123.accessTokenExpiredAt, nil
+// @param accessToken string access_token
+func (p123 *Pan123) SetAccessToken(accessToken string) {
+	p123.accessToken = accessToken
 }
 
-// Login 使用clientID、clientSecret获取accessToken
+// RequestAccessToken 使用clientID、clientSecret请求accessToken
+//
+// @param clientID string client_id
+//
+// @param clientSecret string client_secret
+//
+// @return string accessToken
+//
+// @return time.Time accessToken过期时间
 //
 // @return SDKError
-func (p123 *Pan123) Login() error {
-	if p123.clientID == "" || p123.clientSecret == "" {
-		return newSDKError(999, "clientSecret/clientID empty", defaultTraceID)
-	}
+func (p123 *Pan123) RequestAccessToken(clientID, clientSecret string) (string, time.Time, error) {
 	bodyData := map[string]interface{}{
-		"clientID":     p123.clientID,
-		"clientSecret": p123.clientSecret,
+		"clientID":     clientID,
+		"clientSecret": clientSecret,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return "", time.Time{}, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/access_token", "POST", body, map[string]string{}, false, false)
+	resp, err := p123.callApi("/api/v1/access_token", "POST", body, map[string]string{}, false)
 	if err != nil {
-		return err
+		return "", time.Time{}, err
 	}
 
 	var respData loginRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return err
+		return "", time.Time{}, err
 	}
-	p123.accessToken = respData.AccessToken
-	p123.accessTokenExpiredAt, err = time.Parse(time.RFC3339, respData.ExpiredAt)
+	_accessTokenExpiredAt, err := time.Parse(time.RFC3339, respData.ExpiredAt)
 	if err != nil {
-		return err
+		return "", time.Time{}, err
 	}
-	return nil
+
+	return respData.AccessToken, _accessTokenExpiredAt, nil
 }
 
 // CreateShare 创建分享链接
@@ -131,12 +117,10 @@ func (p123 *Pan123) Login() error {
 //
 // @return CreateShareRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) CreateShare(shareName, fileIDList, sharePwd string, shareExpire int) (*CreateShareRespData, bool, error) {
+func (p123 *Pan123) CreateShare(shareName, fileIDList, sharePwd string, shareExpire int) (*CreateShareRespData, error) {
 	if shareExpire != 1 && shareExpire != 7 && shareExpire != 30 && shareExpire != 0 {
-		return nil, false, newSDKError(999, "shareExpire invalid", defaultTraceID)
+		return nil, newSDKError(999, "shareExpire invalid", defaultTraceID)
 	}
 	bodyData := map[string]interface{}{
 		"shareName":   shareName,
@@ -147,19 +131,20 @@ func (p123 *Pan123) CreateShare(shareName, fileIDList, sharePwd string, shareExp
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/share/create", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/api/v1/share/create", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData CreateShareRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // MkDir 创建目录
@@ -170,10 +155,8 @@ func (p123 *Pan123) CreateShare(shareName, fileIDList, sharePwd string, shareExp
 //
 // @return MkDirRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) MkDir(name string, parentID int64) (*MkDirRespData, bool, error) {
+func (p123 *Pan123) MkDir(name string, parentID int64) (*MkDirRespData, error) {
 	bodyData := map[string]interface{}{
 		"name":     name,
 		"parentID": parentID,
@@ -181,34 +164,35 @@ func (p123 *Pan123) MkDir(name string, parentID int64) (*MkDirRespData, bool, er
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/mkdir", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/mkdir", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData MkDirRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
-func (p123 *Pan123) fileUploadCreateFile(parentFileID int64, filename string, file *os.File, fileSize int64) (*fileUploadCreateFileRespData, bool, error) {
+func (p123 *Pan123) fileUploadCreateFile(parentFileID int64, filename string, file *os.File, fileSize int64) (*fileUploadCreateFileRespData, error) {
 	hash := md5.New()
 	hashBuf := make([]byte, 4*1024*1024)
 	for {
 		n, err := file.Read(hashBuf)
 		if err != nil && err != io.EOF {
-			return nil, false, newSDKError(999, fmt.Sprintf("file.Read(hashBuf) error: %s", err), defaultTraceID)
+			return nil, newSDKError(999, fmt.Sprintf("file.Read(hashBuf) error: %s", err), defaultTraceID)
 		}
 		if n == 0 {
 			break
 		}
 		if _, err := hash.Write(hashBuf[:n]); err != nil {
-			return nil, false, newSDKError(999, fmt.Sprintf("file.Read(hashBuf) error: %s", err), defaultTraceID)
+			return nil, newSDKError(999, fmt.Sprintf("file.Read(hashBuf) error: %s", err), defaultTraceID)
 		}
 	}
 	hashBuf = nil
@@ -223,26 +207,27 @@ func (p123 *Pan123) fileUploadCreateFile(parentFileID int64, filename string, fi
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/create", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/create", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData fileUploadCreateFileRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	_, err = file.Seek(0, io.SeekStart)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("file.Seek(io.SeekStart) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("file.Seek(io.SeekStart) error: %s", err), defaultTraceID)
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
-func (p123 *Pan123) fileUploadGetChunkUploadUrl(preuploadID string, sliceNo int64) (*fileUploadGetChunkUploadUrlRespData, bool, error) {
+func (p123 *Pan123) fileUploadGetChunkUploadUrl(preuploadID string, sliceNo int64) (*fileUploadGetChunkUploadUrlRespData, error) {
 	bodyData := map[string]interface{}{
 		"preuploadID": preuploadID,
 		"sliceNo":     sliceNo,
@@ -250,24 +235,24 @@ func (p123 *Pan123) fileUploadGetChunkUploadUrl(preuploadID string, sliceNo int6
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/get_upload_url", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/get_upload_url", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData fileUploadGetChunkUploadUrlRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
-func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, file *os.File, retry int, cb FileUploadCallbackFunc, chunkCount int64) (*fileUploadChunkUploadRespData, bool, error) {
+func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, file *os.File, retry int, cb FileUploadCallbackFunc, chunkCount int64) (*fileUploadChunkUploadRespData, error) {
 	var currFileSliceNo int64 = 1
-	authTokenRefresh := false
 	chunkBuf := make([]byte, sliceSize)
 	fileSliceSizes := map[int64]int64{}
 
@@ -279,18 +264,15 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 			ChunkCount: chunkCount,
 		})
 		// 获取块上传地址
-		getChunkUploadUrlResp, _authTokenRefresh, err := p123.fileUploadGetChunkUploadUrl(preuploadID, currFileSliceNo)
-		if _authTokenRefresh {
-			authTokenRefresh = true
-		}
+		getChunkUploadUrlResp, err := p123.fileUploadGetChunkUploadUrl(preuploadID, currFileSliceNo)
 		if err != nil {
-			return nil, authTokenRefresh, err
+			return nil, err
 		}
 
 		// 读取块
 		n, err := file.Read(chunkBuf)
 		if err != nil && err != io.EOF {
-			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: %s", err), defaultTraceID)
+			return nil, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: %s", err), defaultTraceID)
 		}
 		if n == 0 {
 			break
@@ -338,56 +320,58 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 		}
 		if retryErr != nil {
 			// 已经到了retry的次数
-			return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("maxRetry, last error: %s", retryErr), defaultTraceID)
+			return nil, newSDKError(999, fmt.Sprintf("maxRetry, last error: %s", retryErr), defaultTraceID)
 		}
 		_chunkBuf.Reset()
 	}
 
-	return &fileUploadChunkUploadRespData{fileSliceSizes: fileSliceSizes}, authTokenRefresh, nil
+	return &fileUploadChunkUploadRespData{fileSliceSizes: fileSliceSizes}, nil
 }
 
-func (p123 *Pan123) fileUploadListUploadParts(preuploadID string) (*fileUploadListUploadPartsRespData, bool, error) {
+func (p123 *Pan123) fileUploadListUploadParts(preuploadID string) (*fileUploadListUploadPartsRespData, error) {
 	bodyData := map[string]interface{}{
 		"preuploadID": preuploadID,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/list_upload_parts", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/list_upload_parts", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData fileUploadListUploadPartsRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
-func (p123 *Pan123) fileUploadUploadComplete(preuploadID string) (*fileUploadUploadCompleteRespData, bool, error) {
+func (p123 *Pan123) fileUploadUploadComplete(preuploadID string) (*fileUploadUploadCompleteRespData, error) {
 	bodyData := map[string]interface{}{
 		"preuploadID": preuploadID,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/upload_complete", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/upload_complete", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData fileUploadUploadCompleteRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // FileUploadWithCallback 带Callback上传文件
@@ -404,18 +388,15 @@ func (p123 *Pan123) fileUploadUploadComplete(preuploadID string) (*fileUploadUpl
 //
 // @return FileUploadRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, file *os.File, retry int, cb FileUploadCallbackFunc) (*FileUploadRespData, bool, error) {
+func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, file *os.File, retry int, cb FileUploadCallbackFunc) (*FileUploadRespData, error) {
 	fileInfo, err := file.Stat()
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("content.Stat error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("content.Stat error: %s", err), defaultTraceID)
 	}
 	if fileInfo.Size() <= 0 {
-		return nil, false, newSDKError(999, "file_size <= 0", defaultTraceID)
+		return nil, newSDKError(999, "file_size <= 0", defaultTraceID)
 	}
-	authTokenRefresh := false
 	if cb == nil {
 		cb = func(_ FileUploadCallbackInfo) {}
 	}
@@ -424,16 +405,13 @@ func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, 
 	cb(FileUploadCallbackInfo{
 		Status: FILE_UPLOAD_CALLBACK_STATUS_CREATE_FILE,
 	})
-	createFileResp, _authTokenRefresh, err := p123.fileUploadCreateFile(parentFileID, filename, file, fileInfo.Size())
-	if _authTokenRefresh {
-		authTokenRefresh = true
-	}
+	createFileResp, err := p123.fileUploadCreateFile(parentFileID, filename, file, fileInfo.Size())
 	if err != nil {
-		return nil, authTokenRefresh, err
+		return nil, err
 	}
 	if createFileResp.Reuse {
 		// 秒传
-		return &FileUploadRespData{FileID: createFileResp.FileID, Reuse: true}, authTokenRefresh, nil
+		return &FileUploadRespData{FileID: createFileResp.FileID, Reuse: true}, nil
 	}
 
 	// 分块上传
@@ -441,12 +419,9 @@ func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, 
 	if fileInfo.Size()%createFileResp.SliceSize != 0 {
 		chunkCount++
 	}
-	chunkUploadResp, _authTokenRefresh, err := p123.fileUploadChunkUpload(createFileResp.PreuploadID, createFileResp.SliceSize, file, retry, cb, chunkCount)
-	if _authTokenRefresh {
-		authTokenRefresh = true
-	}
+	chunkUploadResp, err := p123.fileUploadChunkUpload(createFileResp.PreuploadID, createFileResp.SliceSize, file, retry, cb, chunkCount)
 	if err != nil {
-		return nil, authTokenRefresh, err
+		return nil, err
 	}
 
 	// 上传完毕, 进行校验
@@ -455,24 +430,21 @@ func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, 
 			Status:     FILE_UPLOAD_CALLBACK_STATUS_VERIFY_CHUNK,
 			ChunkCount: chunkCount,
 		})
-		listUploadPartsResp, _authTokenRefresh, err := p123.fileUploadListUploadParts(createFileResp.PreuploadID)
-		if _authTokenRefresh {
-			authTokenRefresh = true
-		}
+		listUploadPartsResp, err := p123.fileUploadListUploadParts(createFileResp.PreuploadID)
 		if err != nil {
-			return nil, authTokenRefresh, err
+			return nil, err
 		}
 		for _, v := range listUploadPartsResp.Parts {
 			_partNumber, err := strconv.ParseInt(v.PartNumber, 10, 0)
 			if err != nil {
-				return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("chunk _partNumber convert error: %s", err), defaultTraceID)
+				return nil, newSDKError(999, fmt.Sprintf("chunk _partNumber convert error: %s", err), defaultTraceID)
 			}
 			if _v, ok := chunkUploadResp.fileSliceSizes[_partNumber]; ok {
 				if _v != v.Size {
-					return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("chunk %d size %d != %d", _partNumber, _v, v.Size), defaultTraceID)
+					return nil, newSDKError(999, fmt.Sprintf("chunk %d size %d != %d", _partNumber, _v, v.Size), defaultTraceID)
 				}
 			} else {
-				return nil, authTokenRefresh, newSDKError(999, fmt.Sprintf("chunk %d not found", _partNumber), defaultTraceID)
+				return nil, newSDKError(999, fmt.Sprintf("chunk %d not found", _partNumber), defaultTraceID)
 			}
 		}
 	}
@@ -481,23 +453,20 @@ func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, 
 	cb(FileUploadCallbackInfo{
 		Status: FILE_UPLOAD_CALLBACK_STATUS_REPORT_COMPLETE,
 	})
-	uploadCompleteResp, _authTokenRefresh, err := p123.fileUploadUploadComplete(createFileResp.PreuploadID)
-	if _authTokenRefresh {
-		authTokenRefresh = true
-	}
+	uploadCompleteResp, err := p123.fileUploadUploadComplete(createFileResp.PreuploadID)
 	if err != nil {
-		return nil, authTokenRefresh, err
+		return nil, err
 	}
 	if uploadCompleteResp.Completed {
 		// 上传成功
-		return &FileUploadRespData{FileID: uploadCompleteResp.FileID}, authTokenRefresh, nil
+		return &FileUploadRespData{FileID: uploadCompleteResp.FileID}, nil
 	}
 	if uploadCompleteResp.Async {
 		// 需要异步查询上传结果
-		return &FileUploadRespData{PreuploadID: createFileResp.PreuploadID, Async: true}, authTokenRefresh, nil
+		return &FileUploadRespData{PreuploadID: createFileResp.PreuploadID, Async: true}, nil
 	}
 
-	return nil, authTokenRefresh, newSDKError(999, "upload failed", defaultTraceID)
+	return nil, newSDKError(999, "upload failed", defaultTraceID)
 }
 
 // FileUpload 上传文件
@@ -510,13 +479,9 @@ func (p123 *Pan123) FileUploadWithCallback(parentFileID int64, filename string, 
 //
 // @return FileUploadRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.File, retry int) (*FileUploadRespData, bool, error) {
-	resp, authTokenRefresh, err := p123.FileUploadWithCallback(parentFileID, filename, file, retry, nil)
-
-	return resp, authTokenRefresh, err
+func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.File, retry int) (*FileUploadRespData, error) {
+	return p123.FileUploadWithCallback(parentFileID, filename, file, retry, nil)
 }
 
 // GetUploadAsyncResult 异步轮询获取上传结果
@@ -525,29 +490,28 @@ func (p123 *Pan123) FileUpload(parentFileID int64, filename string, file *os.Fil
 //
 // @return UploadAsyncResultRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetUploadAsyncResult(preuploadID string) (*UploadAsyncResultRespData, bool, error) {
+func (p123 *Pan123) GetUploadAsyncResult(preuploadID string) (*UploadAsyncResultRespData, error) {
 	bodyData := map[string]interface{}{
 		"preuploadID": preuploadID,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/upload/v1/file/upload_async_result", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/upload/v1/file/upload_async_result", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData UploadAsyncResultRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // MoveFile 移动文件
@@ -558,10 +522,8 @@ func (p123 *Pan123) GetUploadAsyncResult(preuploadID string) (*UploadAsyncResult
 //
 // @param toParentFileID int64 要移动到的目标文件夹id，移动到根目录时填写 0
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) MoveFile(fileIDs []int64, toParentFileID int64) (bool, error) {
+func (p123 *Pan123) MoveFile(fileIDs []int64, toParentFileID int64) error {
 	bodyData := map[string]interface{}{
 		"fileIDs":        fileIDs,
 		"toParentFileID": toParentFileID,
@@ -569,14 +531,11 @@ func (p123 *Pan123) MoveFile(fileIDs []int64, toParentFileID int64) (bool, error
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/file/move", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/file/move", "POST", body, map[string]string{}, true)
 
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // TrashFile 删除文件至回收站
@@ -585,24 +544,19 @@ func (p123 *Pan123) MoveFile(fileIDs []int64, toParentFileID int64) (bool, error
 //
 // @param fileIDs []int64 文件id数组,一次性最大不能超过 100 个文件
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) TrashFile(fileIDs []int64) (bool, error) {
+func (p123 *Pan123) TrashFile(fileIDs []int64) error {
 	bodyData := map[string]interface{}{
 		"fileIDs": fileIDs,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/file/trash", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/file/trash", "POST", body, map[string]string{}, true)
 
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // RecoverFile 从回收站恢复文件
@@ -611,24 +565,19 @@ func (p123 *Pan123) TrashFile(fileIDs []int64) (bool, error) {
 //
 // @param fileIDs []int64 文件id数组,一次性最大不能超过 100 个文件
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) RecoverFile(fileIDs []int64) (bool, error) {
+func (p123 *Pan123) RecoverFile(fileIDs []int64) error {
 	bodyData := map[string]interface{}{
 		"fileIDs": fileIDs,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/file/recover", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/file/recover", "POST", body, map[string]string{}, true)
 
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // DeleteFile 彻底删除文件
@@ -637,24 +586,19 @@ func (p123 *Pan123) RecoverFile(fileIDs []int64) (bool, error) {
 //
 // @param fileIDs []int64 文件id数组,一次性最大不能超过 100 个文件
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) DeleteFile(fileIDs []int64) (bool, error) {
+func (p123 *Pan123) DeleteFile(fileIDs []int64) error {
 	bodyData := map[string]interface{}{
 		"fileIDs": fileIDs,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/file/delete", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/file/delete", "POST", body, map[string]string{}, true)
 
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // GetFileList 获取文件列表
@@ -675,15 +619,13 @@ func (p123 *Pan123) DeleteFile(fileIDs []int64) (bool, error) {
 //
 // @return GetFileListRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetFileList(parentFileId, page, limit int64, orderBy, orderDirection string, trashed bool, searchData string) (*GetFileListRespData, bool, error) {
+func (p123 *Pan123) GetFileList(parentFileId, page, limit int64, orderBy, orderDirection string, trashed bool, searchData string) (*GetFileListRespData, error) {
 	if orderBy != "file_id" && orderBy != "size" && orderBy != "file_name" {
-		return nil, false, newSDKError(999, "orderBy invalid", defaultTraceID)
+		return nil, newSDKError(999, "orderBy invalid", defaultTraceID)
 	}
 	if orderDirection != "asc" && orderDirection != "desc" {
-		return nil, false, newSDKError(999, "orderDirection invalid", defaultTraceID)
+		return nil, newSDKError(999, "orderDirection invalid", defaultTraceID)
 	}
 	querys := map[string]string{
 		"parentFileId":   strconv.FormatInt(parentFileId, 10),
@@ -697,38 +639,38 @@ func (p123 *Pan123) GetFileList(parentFileId, page, limit int64, orderBy, orderD
 		querys["trashed"] = "true"
 	}
 
-	resp, err := p123.callApi("/api/v1/file/list", "GET", nil, querys, true, true)
+	resp, err := p123.callApi("/api/v1/file/list", "GET", nil, querys, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetFileListRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // GetUserInfo 获取用户信息
 //
 // @return UploadAsyncResultRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetUserInfo() (*GetUserInfoRespData, bool, error) {
-	resp, err := p123.callApi("/api/v1/user/info", "GET", nil, map[string]string{}, true, true)
+func (p123 *Pan123) GetUserInfo() (*GetUserInfoRespData, error) {
+	resp, err := p123.callApi("/api/v1/user/info", "GET", nil, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetUserInfoRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // OfflineDownload 创建离线下载任务
@@ -745,10 +687,8 @@ func (p123 *Pan123) GetUserInfo() (*GetUserInfoRespData, bool, error) {
 //
 // @return UploadAsyncResultRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string, dirID int64) (*OfflineDownloadRespData, bool, error) {
+func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string, dirID int64) (*OfflineDownloadRespData, error) {
 	bodyData := map[string]interface{}{
 		"url": url,
 	}
@@ -764,19 +704,20 @@ func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string, dirID int
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("api/v1/offline/download", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("api/v1/offline/download", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData OfflineDownloadRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // QueryDirectLinkTranscode 查询直链转码进度
@@ -785,29 +726,28 @@ func (p123 *Pan123) OfflineDownload(url, fileName, callBackUrl string, dirID int
 //
 // @return QueryDirectLinkTranscodeRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) QueryDirectLinkTranscode(ids []int64) (*QueryDirectLinkTranscodeRespData, bool, error) {
+func (p123 *Pan123) QueryDirectLinkTranscode(ids []int64) (*QueryDirectLinkTranscodeRespData, error) {
 	bodyData := map[string]interface{}{
 		"ids": ids,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/direct-link/queryTranscode", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/api/v1/direct-link/queryTranscode", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData QueryDirectLinkTranscodeRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // DoDirectLinkTranscode 发起直链转码
@@ -816,55 +756,45 @@ func (p123 *Pan123) QueryDirectLinkTranscode(ids []int64) (*QueryDirectLinkTrans
 //
 // @param ids []int64 需要转码的文件ID列表
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) DoDirectLinkTranscode(ids []int64) (bool, error) {
+func (p123 *Pan123) DoDirectLinkTranscode(ids []int64) error {
 	bodyData := map[string]interface{}{
 		"ids": ids,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/direct-link/doTranscode", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/direct-link/doTranscode", "POST", body, map[string]string{}, true)
 
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // GetDirectLinkM3u8 获取直链转码链接
 //
-// @param fileID []int64 启用直链空间的文件夹的fileID
+// @param fileID int64 文件ID
 //
 // @return GetDirectLinkM3u8RespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetDirectLinkM3u8(fileID []int64) (*GetDirectLinkM3u8RespData, bool, error) {
-	idsJson, err := json.Marshal(fileID)
-	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(fileID) error: %s", err), defaultTraceID)
-	}
+func (p123 *Pan123) GetDirectLinkM3u8(fileID int64) (*GetDirectLinkM3u8RespData, error) {
 	querys := map[string]string{
-		"fileID": string(idsJson),
+		"fileID": strconv.FormatInt(fileID, 10),
 	}
 
-	resp, err := p123.callApi("/api/v1/direct-link/get/m3u8", "GET", nil, querys, true, true)
+	resp, err := p123.callApi("/api/v1/direct-link/get/m3u8", "GET", nil, querys, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetDirectLinkM3u8RespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // EnableDirectLink 启用直链空间
@@ -873,29 +803,28 @@ func (p123 *Pan123) GetDirectLinkM3u8(fileID []int64) (*GetDirectLinkM3u8RespDat
 //
 // @return EnableDirectLinkRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) EnableDirectLink(fileID int64) (*EnableDirectLinkRespData, bool, error) {
+func (p123 *Pan123) EnableDirectLink(fileID int64) (*EnableDirectLinkRespData, error) {
 	bodyData := map[string]interface{}{
 		"fileID": fileID,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/direct-link/enable", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/api/v1/direct-link/enable", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData EnableDirectLinkRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // DisableDirectLink 禁用直链空间
@@ -904,29 +833,28 @@ func (p123 *Pan123) EnableDirectLink(fileID int64) (*EnableDirectLinkRespData, b
 //
 // @return DisableDirectLinkRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) DisableDirectLink(fileID int64) (*DisableDirectLinkRespData, bool, error) {
+func (p123 *Pan123) DisableDirectLink(fileID int64) (*DisableDirectLinkRespData, error) {
 	bodyData := map[string]interface{}{
 		"fileID": fileID,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return nil, false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return nil, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/direct-link/disable", "POST", body, map[string]string{}, true, true)
+	resp, err := p123.callApi("/api/v1/direct-link/disable", "POST", body, map[string]string{}, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData DisableDirectLinkRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // GetDirectLinkUrl 获取直链链接
@@ -935,53 +863,42 @@ func (p123 *Pan123) DisableDirectLink(fileID int64) (*DisableDirectLinkRespData,
 //
 // @return GetDirectLinkUrlRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetDirectLinkUrl(fileID int64) (*GetDirectLinkUrlRespData, bool, error) {
+func (p123 *Pan123) GetDirectLinkUrl(fileID int64) (*GetDirectLinkUrlRespData, error) {
 	querys := map[string]string{
 		"fileID": strconv.FormatInt(fileID, 10),
 	}
-	resp, err := p123.callApi("/api/v1/direct-link/url", "GET", nil, querys, true, true)
+	resp, err := p123.callApi("/api/v1/direct-link/url", "GET", nil, querys, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetDirectLinkUrlRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // RenameFile 重命名文件
 //
 // @param renameList []string 数组,每个成员的格式为 文件ID|新的文件名
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) RenameFile(renameList []string) (bool, error) {
+func (p123 *Pan123) RenameFile(renameList []string) error {
 	bodyData := map[string]interface{}{
 		"renameList": renameList,
 	}
 
 	body, err := json.Marshal(bodyData)
 	if err != nil {
-		return false, newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
+		return newSDKError(999, fmt.Sprintf("json.Marshal(req) error: %s", err), defaultTraceID)
 	}
-	resp, err := p123.callApi("/api/v1/file/rename", "POST", body, map[string]string{}, true, true)
-	if err != nil {
-		return false, err
-	}
+	_, err = p123.callApi("/api/v1/file/rename", "POST", body, map[string]string{}, true)
 
-	var respData DisableDirectLinkRespData
-	err = toRespData(resp.Data, &respData)
-	if err != nil {
-		return false, err
-	}
-	return resp.TokenRefresh, nil
+	return err
 }
 
 // GetFileDetail 获取文件详情
@@ -990,24 +907,23 @@ func (p123 *Pan123) RenameFile(renameList []string) (bool, error) {
 //
 // @return GetFileDetailRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetFileDetail(fileID int64) (*GetFileDetailRespData, bool, error) {
+func (p123 *Pan123) GetFileDetail(fileID int64) (*GetFileDetailRespData, error) {
 	querys := map[string]string{
 		"fileID": strconv.FormatInt(fileID, 10),
 	}
-	resp, err := p123.callApi("/api/v1/file/detail", "GET", nil, querys, true, true)
+	resp, err := p123.callApi("/api/v1/file/detail", "GET", nil, querys, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetFileDetailRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
 // GetOfflineDownloadProcess 获取离线下载进度
@@ -1016,33 +932,33 @@ func (p123 *Pan123) GetFileDetail(fileID int64) (*GetFileDetailRespData, bool, e
 //
 // @return GetFileDetailRespData
 //
-// @return bool accessToken是否有更新
-//
 // @return SDKError
-func (p123 *Pan123) GetOfflineDownloadProcess(taskID int64) (*GetOfflineDownloadProcessRespData, bool, error) {
+func (p123 *Pan123) GetOfflineDownloadProcess(taskID int64) (*GetOfflineDownloadProcessRespData, error) {
 	querys := map[string]string{
 		"taskID": strconv.FormatInt(taskID, 10),
 	}
-	resp, err := p123.callApi("/api/v1/offline/download/process", "GET", nil, querys, true, true)
+	resp, err := p123.callApi("/api/v1/offline/download/process", "GET", nil, querys, true)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var respData GetOfflineDownloadProcessRespData
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return &respData, resp.TokenRefresh, nil
+
+	return &respData, nil
 }
 
-func (p123 *Pan123) callApi(path, method string, body []byte, querys map[string]string, withAuth, authRetry bool) (*callApiResp, error) {
+func (p123 *Pan123) callApi(path, method string, body []byte, querys map[string]string, withAuth bool) (*callApiResp, error) {
 	headers := map[string]string{}
 	r := &callApiResp{}
 	accessToken := ""
 	if withAuth {
 		accessToken = p123.accessToken
 	}
+
 	data, err := p123.doApiRequest(method, path, accessToken, querys, headers, body)
 	if err != nil {
 		var sdkError *SDKError
@@ -1050,25 +966,11 @@ func (p123 *Pan123) callApi(path, method string, body []byte, querys map[string]
 			// 不应被触发
 			return nil, err
 		}
-		if sdkError.Code == 401 && authRetry {
-			// accessToken失效, 重试
-			err = p123.Login()
-			if err != nil {
-				return nil, err
-			}
-			r.Data, err = p123.doApiRequest(method, path, accessToken, querys, headers, body)
-			if err != nil {
-				return nil, err
-			}
-			r.TokenRefresh = true
-			r.Data = data
-		} else {
-			return nil, err
-		}
+		return nil, err
 	} else {
-		r.TokenRefresh = false
 		r.Data = data
 	}
+
 	return r, nil
 }
 
@@ -1193,5 +1095,6 @@ func toRespData(i map[string]interface{}, o interface{}) error {
 	if err != nil {
 		return newSDKError(999, fmt.Sprintf("json.Unmarshal(resp) error: %s", err), defaultTraceID)
 	}
+
 	return nil
 }

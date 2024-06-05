@@ -8,8 +8,7 @@ type apiHttpResp struct {
 }
 
 type callApiResp struct {
-	TokenRefresh bool
-	Data         map[string]interface{}
+	Data map[string]interface{}
 }
 
 type loginRespData struct {

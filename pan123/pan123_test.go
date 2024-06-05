@@ -1,3 +1,9 @@
+// $Env:HTTP_PROXY="http://127.0.0.1:8888"
+// $Env:HTTPS_PROXY="http://127.0.0.1:8888"
+// $Env:PAN123_ACCESS_TOKEN=""
+// $Env:PAN123_CLIENT_ID="YOUR_CLIENT_ID"
+// $Env:PAN123_CLIENT_SECRET="YOUR_CLIENT_SECRET"
+// go test -v ./pan123
 package pan123
 
 import (
@@ -9,26 +15,23 @@ import (
 	"time"
 )
 
-var pan123TestInstance = NewPan123(os.Getenv("PAN123_ACCESS_TOKEN"), os.Getenv("PAN123_CLIENT_ID"), os.Getenv("PAN123_CLIENT_SECRET"), 0, false)
+var pan123TestInstance = NewPan123(0, false)
 
 var pan123TestInstanceDirID int64 = 0
 var pan123TestInstanceFileID int64 = 0
 var pan123TestFilePath string
 
-func _TestLogin(t *testing.T) {
-	err := pan123TestInstance.Login()
+func _TestRequestAccessToken(t *testing.T) {
+	accessToken, accessTokenExpiredAt, err := pan123TestInstance.RequestAccessToken(os.Getenv("PAN123_CLIENT_ID"), os.Getenv("PAN123_CLIENT_SECRET"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	accessTokenExpiredAt, err := pan123TestInstance.GetAccessTokenExpiredAt()
-	if err != nil {
-		t.Fatal(err)
-	}
+	pan123TestInstance.SetAccessToken(accessToken)
 	t.Logf("accessTokenExpiredAt = %s", accessTokenExpiredAt)
 }
 
 func _TestMkDir(t *testing.T) {
-	resp, _, err := pan123TestInstance.MkDir("go_sdk_unit_test", 0)
+	resp, err := pan123TestInstance.MkDir("go_sdk_unit_test", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +47,7 @@ func _TestUploadFile(t *testing.T) {
 	statusCB := func(info FileUploadCallbackInfo) {
 		t.Log(info)
 	}
-	resp, _, err := pan123TestInstance.FileUploadWithCallback(pan123TestInstanceDirID, "go_sdk_unit_test_test_upload.txt", file, 23, statusCB)
+	resp, err := pan123TestInstance.FileUploadWithCallback(pan123TestInstanceDirID, "go_sdk_unit_test_test_upload.txt", file, 23, statusCB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +55,7 @@ func _TestUploadFile(t *testing.T) {
 		// 需要等待异步上传
 		t.Logf("wait for async upload")
 		for {
-			resp2, _, err := pan123TestInstance.GetUploadAsyncResult(resp.PreuploadID)
+			resp2, err := pan123TestInstance.GetUploadAsyncResult(resp.PreuploadID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,68 +71,68 @@ func _TestUploadFile(t *testing.T) {
 }
 
 func _TestMoveFile(t *testing.T) {
-	_, err := pan123TestInstance.MoveFile([]int64{pan123TestInstanceFileID}, 0)
+	err := pan123TestInstance.MoveFile([]int64{pan123TestInstanceFileID}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 再移回去, 下面要用
-	_, err = pan123TestInstance.MoveFile([]int64{pan123TestInstanceFileID}, pan123TestInstanceDirID)
+	err = pan123TestInstance.MoveFile([]int64{pan123TestInstanceFileID}, pan123TestInstanceDirID)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestRenameFile(t *testing.T) {
-	_, err := pan123TestInstance.RenameFile([]string{strconv.FormatInt(pan123TestInstanceFileID, 10) + "|test_rename"})
+	err := pan123TestInstance.RenameFile([]string{strconv.FormatInt(pan123TestInstanceFileID, 10) + "|test_rename"})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestGetFileDetail(t *testing.T) {
-	_, _, err := pan123TestInstance.GetFileDetail(pan123TestInstanceFileID)
+	_, err := pan123TestInstance.GetFileDetail(pan123TestInstanceFileID)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestEnableDirectLink(t *testing.T) {
-	_, _, err := pan123TestInstance.EnableDirectLink(pan123TestInstanceDirID)
+	_, err := pan123TestInstance.EnableDirectLink(pan123TestInstanceDirID)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestGetDirectLinkUrl(t *testing.T) {
-	_, _, err := pan123TestInstance.GetDirectLinkUrl(pan123TestInstanceFileID)
+	_, err := pan123TestInstance.GetDirectLinkUrl(pan123TestInstanceFileID)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestDisableDirectLink(t *testing.T) {
-	_, _, err := pan123TestInstance.DisableDirectLink(pan123TestInstanceDirID)
+	_, err := pan123TestInstance.DisableDirectLink(pan123TestInstanceDirID)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestGetFileList(t *testing.T) {
-	_, _, err := pan123TestInstance.GetFileList(pan123TestInstanceDirID, 1, 99, "file_id", "asc", false, "")
+	_, err := pan123TestInstance.GetFileList(pan123TestInstanceDirID, 1, 99, "file_id", "asc", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func _TestTrashFile(t *testing.T) {
-	_, err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceFileID})
+	err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceFileID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pan123TestInstanceFileID = 0
 
 	// 根据咨询官方技术人员, 该接口可同时删除文件夹
-	_, err = pan123TestInstance.TrashFile([]int64{pan123TestInstanceDirID})
+	err = pan123TestInstance.TrashFile([]int64{pan123TestInstanceDirID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +145,7 @@ func TestSequential(t *testing.T) {
 		name string
 		test func(t *testing.T)
 	}{
-		{"TestLogin", _TestLogin},
+		{"TestRequestAccessToken", _TestRequestAccessToken},
 		{"TestMkDir", _TestMkDir},
 		{"TestUploadFile", _TestUploadFile},
 		{"TestMoveFile", _TestMoveFile},
@@ -166,6 +169,8 @@ func TestSequential(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	t := &testing.T{}
+
+	pan123TestInstance.SetAccessToken(os.Getenv("PAN123_ACCESS_TOKEN"))
 
 	// 创建测试文件
 	setupTestFile := func() error {
@@ -228,14 +233,14 @@ func TestMain(m *testing.M) {
 			}
 		}
 		if pan123TestInstanceDirID != 0 {
-			_, _, _ = pan123TestInstance.DisableDirectLink(pan123TestInstanceDirID)
-			_, _err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceDirID})
+			_, _ = pan123TestInstance.DisableDirectLink(pan123TestInstanceDirID)
+			_err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceDirID})
 			if _err != nil {
 				t.Fatalf("clean failed: %s", _err)
 			}
 		}
 		if pan123TestInstanceFileID != 0 {
-			_, _err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceFileID})
+			_err := pan123TestInstance.TrashFile([]int64{pan123TestInstanceFileID})
 			if _err != nil {
 				t.Fatalf("clean failed: %s", _err)
 			}

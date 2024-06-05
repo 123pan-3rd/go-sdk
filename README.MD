@@ -7,7 +7,7 @@
 
 ## 功能
 
-- [x] 登录(clientID + clientSecret / accessToken)
+- [x] 获取accessToken
 - [x] 创建分享链接
 - [x] 创建目录
 - [x] 上传文件(可选: 重试、进度回调)
