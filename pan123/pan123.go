@@ -257,6 +257,9 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 	fileSliceSizes := map[int64]int64{}
 
 	for {
+		if currFileSliceNo > chunkCount {
+			break
+		}
 		_currFileSliceNo := currFileSliceNo
 		cb(FileUploadCallbackInfo{
 			Status:     FILE_UPLOAD_CALLBACK_STATUS_FIRST_UPLOAD_CHUNK,
@@ -274,8 +277,8 @@ func (p123 *Pan123) fileUploadChunkUpload(preuploadID string, sliceSize int64, f
 		if err != nil && err != io.EOF {
 			return nil, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: %s", err), defaultTraceID)
 		}
-		if n == 0 {
-			break
+		if n == 0 && err == io.EOF {
+			return nil, newSDKError(999, fmt.Sprintf("file.Read(chunkBuf) error: io.EOF and size = 0"), defaultTraceID)
 		}
 		fileSliceSizes[currFileSliceNo] = int64(n)
 		// 在读取块内容后就对块ID进行累加
@@ -601,7 +604,7 @@ func (p123 *Pan123) DeleteFile(fileIDs []int64) error {
 	return err
 }
 
-// GetFileList 获取文件列表
+// GetFileList 获取文件列表（旧）
 //
 // @param parentFileId int64 文件夹ID，根目录传 0
 //
@@ -615,7 +618,7 @@ func (p123 *Pan123) DeleteFile(fileIDs []int64) error {
 //
 // @param trashed boolean 是否查看回收站的文件
 //
-// @param searchData string 搜索关键字
+// @param searchData string 搜索关键字, 不需要时传空
 //
 // @return GetFileListRespData
 //
@@ -633,7 +636,9 @@ func (p123 *Pan123) GetFileList(parentFileId, page, limit int64, orderBy, orderD
 		"limit":          strconv.FormatInt(limit, 10),
 		"orderBy":        orderBy,
 		"orderDirection": orderDirection,
-		"searchData":     searchData,
+	}
+	if searchData != "" {
+		querys["searchData"] = searchData
 	}
 	if trashed {
 		querys["trashed"] = "true"
@@ -645,6 +650,50 @@ func (p123 *Pan123) GetFileList(parentFileId, page, limit int64, orderBy, orderD
 	}
 
 	var respData GetFileListRespData
+	err = toRespData(resp.Data, &respData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &respData, nil
+}
+
+// GetFileListV2 获取文件列表（推荐）
+//
+// @param parentFileId int64 文件夹ID，根目录传 0
+//
+// @param limit int64 每页文件数量，最大不超过100
+//
+// @param searchData string 搜索关键字将无视文件夹ID参数进行全局查找, 不需要时传空
+//
+// @param searchMode int64 0-全文模糊搜索(注:将会根据搜索项分词,查找出相似的匹配项),1-精准搜索(注:精准搜索需要提供完整的文件名),不需要时传-1
+//
+// @param lastFileId int64 翻页查询时需要填写, 不需要时传-1
+//
+// @return GetFileListRespDataV2
+//
+// @return SDKError
+func (p123 *Pan123) GetFileListV2(parentFileId, limit int64, searchData string, searchMode, lastFileId int64) (*GetFileListRespDataV2, error) {
+	querys := map[string]string{
+		"parentFileId": strconv.FormatInt(parentFileId, 10),
+		"limit":        strconv.FormatInt(limit, 10),
+	}
+	if searchData != "" {
+		querys["searchData"] = searchData
+	}
+	if searchMode != -1 {
+		querys["searchMode"] = strconv.FormatInt(searchMode, 10)
+	}
+	if lastFileId != -1 {
+		querys["lastFileId"] = strconv.FormatInt(lastFileId, 10)
+	}
+
+	resp, err := p123.callApi("/api/v2/file/list", "GET", nil, querys, true)
+	if err != nil {
+		return nil, err
+	}
+
+	var respData GetFileListRespDataV2
 	err = toRespData(resp.Data, &respData)
 	if err != nil {
 		return nil, err

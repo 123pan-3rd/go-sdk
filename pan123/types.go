@@ -105,6 +105,32 @@ type FileListInfoRespData struct {
 	ContentType string `json:"contentType"`
 }
 
+type GetFileListRespDataV2 struct {
+	// -1代表最后一页（无需再翻页查询）, 其他代表下一页开始的文件id，携带到请求参数中
+	LastFileId int64 `json:"lastFileId"`
+	// 文件列表
+	FileList []FileListInfoRespDataV2 `json:"fileList"`
+}
+
+type FileListInfoRespDataV2 struct {
+	// 文件ID
+	FileID int64 `json:"fileID"`
+	// 文件名
+	Filename string `json:"filename"`
+	// 0-文件  1-文件夹
+	Type int `json:"type"`
+	// 文件大小
+	Size int64 `json:"size"`
+	// md5
+	Etag string `json:"etag"`
+	// 文件审核状态, 大于 100 为审核驳回文件
+	Status int `json:"status"`
+	// 目录ID
+	ParentFileID int64 `json:"parentFileID"`
+	// 文件分类, 0-未知 1-音频 2-视频 3-图片
+	Category int `json:"category"`
+}
+
 type GetUserInfoRespData struct {
 	// 用户账号ID
 	Uid int64 `json:"uid"`
